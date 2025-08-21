@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>BitWatcher</title>
   <style>
     :root{--bg:#0b0f14;--card:#121821;--line:#1f2a38;--muted:#9fb0c3;--text:#e7eef6;--accent:#f7931a}
@@ -18,292 +18,231 @@
     .toolbar{justify-content:space-between;margin-bottom:10px}
     .btn{background:#0e141c;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:pointer}
     .btn:disabled{opacity:.6;cursor:not-allowed}
-    .select,.input{background:#0e141c;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
-    #chart{height:560px}
+    .input{background:#0e141c;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
     label{color:var(--muted);font-size:13px}
     small{color:var(--muted)}
     .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
     hr{border:0;border-top:1px solid var(--line);margin:16px 0}
-    a{color:var(--accent)}
+    /* chart panes */
+    .pane{height:560px; display:none;}
+    .pane.active{display:block;}
   </style>
 </head>
 <body>
-  <header>
-    <h1>BitWatcher</h1>
-    <span class="pill">Open‑source • No tracking • Live chart</span>
-  </header>
+<header>
+  <h1>BitWatcher</h1>
+  <span class="pill">Open‑source • No tracking • Live chart</span>
+</header>
 
-  <main>
-    <!-- LEFT: Chart -->
-    <section class="card">
-      <div class="row toolbar">
-        <div class="row">
-          <label>Range</label>
-          <button class="btn" data-range="1D">1D</button>
-          <button class="btn" data-range="1Y">1Y</button>
-          <button class="btn" data-range="5Y">5Y</button>
-        </div>
-        <div class="row">
-          <label><input type="checkbox" id="ma200d" checked> 200‑day MA</label>
-          <label><input type="checkbox" id="ma200w" checked> ~200‑week MA</label>
-          <button class="btn" id="markATHBtn" title="Toggle ATH line">ATH</button>
-        </div>
+<main>
+  <!-- LEFT: Charts -->
+  <section class="card">
+    <div class="row toolbar">
+      <div class="row">
+        <label>Range</label>
+        <button class="btn" data-view="day">1 Day</button>
+        <button class="btn" data-view="1y">1 Year</button>
+        <button class="btn" data-view="5y">5 Years</button>
       </div>
-      <div id="chart"></div>
-      <small>
-        Sources: TradingView (candles), CoinGecko (spot/ATH for alerts), mempool.space (on‑chain).
-        200‑week MA approximated as 1400‑day MA on daily candles.
-      </small>
-    </section>
-
-    <!-- RIGHT: Sidebar -->
-    <aside class="card">
-      <h3 style="margin:4px 0 8px">Wallet Lookup</h3>
-      <input id="addrInput" class="input mono" placeholder="Paste BTC address (mainnet)">
-      <div class="row" style="margin-top:8px">
-        <button class="btn" id="addrBtn">Lookup</button>
-        <button class="btn" id="clearAddrBtn">Clear</button>
+      <div class="row">
+        <label><input type="checkbox" id="show200d" checked> 200‑day MA</label>
+        <label><input type="checkbox" id="show200w" checked> ~200‑week MA</label>
+        <label><input type="checkbox" id="showATH" checked> ATH</label>
       </div>
-      <div id="addrResult" style="margin-top:10px">
-        <small>Enter a Bitcoin address to view balance, UTXOs and recent TXs.</small>
-      </div>
+    </div>
 
-      <hr />
+    <!-- three dedicated panes -->
+    <div id="pane-day" class="pane active"></div>
+    <div id="pane-1y"  class="pane"></div>
+    <div id="pane-5y"  class="pane"></div>
 
-      <h3>Alerts</h3>
-      <small id="notifState">Notifications: requesting permission…</small>
+    <small>
+      Data: CoinGecko (prices & ATH). Charts: TradingView Lightweight Charts.
+      200‑week MA shown as a horizontal level equal to the latest 1400‑day SMA computed from 5y daily data.
+    </small>
+  </section>
 
-      <hr />
+  <!-- RIGHT: Sidebar (kept minimal for now) -->
+  <aside class="card">
+    <h3 style="margin:4px 0 8px">Donate BTC</h3>
+    <p class="mono">3Q8gDB9QEgLP71ts3XDK7Ss45wMGjL6BHu</p>
+    <small>Thank you for supporting development 🙏</small>
+    <hr />
+    <small>Next: wallet lookup & alerts can be re‑added after charts feel perfect.</small>
+  </aside>
+</main>
 
-      <h3>Donate BTC</h3>
-      <p class="mono" id="donationAddr">3Q8gDB9QEgLP71ts3XDK7Ss45wMGjL6BHu</p>
-      <small>Thank you for supporting development 🙏</small>
-    </aside>
-  </main>
+<!-- TradingView Lightweight Charts -->
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+/** =========================
+ *  Data sources (CoinGecko)
+ *  ========================= */
+const CG = {
+  // prices: list of [timestamp_ms, price]
+  marketChart(days, interval){ 
+    const iv = interval ? `&interval=${interval}` : '';
+    return fetch(`https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=${days}${iv}`)
+      .then(r=>r.json());
+  },
+  // gets overall ATH (all-time, not just 5y)
+  ath(){ 
+    return fetch('https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&sparkline=false')
+      .then(r=>r.json())
+      .then(j=>j?.market_data?.ath?.usd ?? null);
+  }
+};
 
-  <!-- TradingView -->
-  <script src="https://s3.tradingview.com/tv.js"></script>
-  <script>
-    /***************
-     * TradingView *
-     ***************/
-    const tvWidget = new TradingView.widget({
-      container_id: "chart",
-      symbol: "BITSTAMP:BTCUSD",
-      interval: "D",
-      timezone: "Etc/UTC",
-      theme: "dark",
-      style: "1",
-      locale: "en",
-      allow_symbol_change: false,
-      hide_top_toolbar: false,
-      autosize: true,
-      disabled_features: ["header_widget"],
-      enabled_features: ["study_templates"],
-      overrides: {
-        "paneProperties.background": "#121821",
-        "paneProperties.vertGridProperties.color": "#1f2a38",
-        "paneProperties.horzGridProperties.color": "#1f2a38"
-      }
-    });
+function sma(values, window){
+  const out = new Array(values.length).fill(null);
+  let sum = 0;
+  for (let i=0;i<values.length;i++){
+    sum += values[i];
+    if (i>=window) sum -= values[i-window];
+    if (i>=window-1) out[i] = sum/window;
+  }
+  return out;
+}
 
-    let chart, sma200dId=null, sma200wId=null, athLineId=null;
+/** =========================
+ *  Chart helpers
+ *  ========================= */
+function createBaseChart(container){
+  const chart = LightweightCharts.createChart(container, {
+    layout: { background: { color: '#121821' }, textColor: '#e7eef6' },
+    grid: { vertLines: { color:'#1f2a38' }, horzLines: { color:'#1f2a38' } },
+    rightPriceScale: { borderColor: '#1f2a38' },
+    timeScale: { borderColor: '#1f2a38' },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+  });
+  const series = chart.addAreaSeries({
+    lineWidth: 2,
+    priceLineVisible: false,
+    topColor: 'rgba(247,147,26,0.25)',
+    bottomColor: 'rgba(247,147,26,0.04)',
+  });
+  return { chart, series };
+}
 
-    tvWidget.onChartReady(() => {
-      chart = tvWidget.activeChart();
+function toAreaData(prices){
+  // CoinGecko returns [ms, price]; area series expects { time: seconds, value }
+  return prices.map(([t,p]) => ({ time: Math.floor(t/1000), value: Number(p) }));
+}
 
-      // Default view on load
-      setRange('1Y');
+function last(arr){ return arr[arr.length-1]; }
 
-      // Wire up range buttons
-      document.querySelectorAll('button[data-range]').forEach(btn => {
-        btn.addEventListener('click', () => setRange(btn.getAttribute('data-range')));
-      });
+/** Maintain three charts */
+const panes = {
+  day:  { el: document.getElementById('pane-day'),  chart:null, series:null, pricelines:[] },
+  '1y': { el: document.getElementById('pane-1y'),   chart:null, series:null, pricelines:[] },
+  '5y': { el: document.getElementById('pane-5y'),   chart:null, series:null, pricelines:[] },
+};
 
-      // MA toggles
-      document.getElementById('ma200d').addEventListener('change', e => {
-        if (e.target.checked) {
-          if (!sma200dId) sma200dId = chart.createStudy('Moving Average', false, false, [200]);
-        } else if (sma200dId) {
-          chart.removeEntity(sma200dId); sma200dId = null;
-        }
-      });
-      document.getElementById('ma200w').addEventListener('change', e => {
-        if (e.target.checked) {
-          if (!sma200wId) sma200wId = chart.createStudy('Moving Average', false, false, [1400]);
-        } else if (sma200wId) {
-          chart.removeEntity(sma200wId); sma200wId = null;
-        }
-      });
+let levels = { ma200d:null, ma200w:null, ath:null }; // computed once from 5y
 
-      // ATH toggle
-      document.getElementById('markATHBtn').addEventListener('click', () => {
-        if (!coingecko.ath) return alert('ATH not loaded yet.');
-        if (athLineId) { chart.removeEntity(athLineId); athLineId = null; }
-        else athLineId = chart.createShape(
-          { price: coingecko.ath },
-          { shape: 'horizontal_line', text: 'ATH $' + coingecko.ath.toLocaleString() }
-        );
-      });
-    });
+function clearPriceLines(pane){
+  pane.pricelines.forEach(pl => pane.series.removePriceLine(pl));
+  pane.pricelines = [];
+}
+function addLevelLines(pane){
+  clearPriceLines(pane);
+  if (document.getElementById('show200d').checked && levels.ma200d){
+    pane.pricelines.push(pane.series.createPriceLine({
+      price: levels.ma200d, color: '#9fb0c3', lineWidth: 1, lineStyle: 2, title: 'MA 200D'
+    }));
+  }
+  if (document.getElementById('show200w').checked && levels.ma200w){
+    pane.pricelines.push(pane.series.createPriceLine({
+      price: levels.ma200w, color: '#9fb0c3', lineWidth: 1, lineStyle: 2, title: '≈ MA 200W'
+    }));
+  }
+  if (document.getElementById('showATH').checked && levels.ath){
+    pane.pricelines.push(pane.series.createPriceLine({
+      price: levels.ath, color: '#f7931a', lineWidth: 1, lineStyle: 0, title: 'ATH'
+    }));
+  }
+}
 
-    // Re-apply studies after a resolution change (TV can drop them)
-    function reapplyMAs() {
-      if (sma200dId) { chart.removeEntity(sma200dId); sma200dId = null; }
-      if (sma200wId) { chart.removeEntity(sma200wId); sma200wId = null; }
-      if (document.getElementById('ma200d').checked) {
-        sma200dId = chart.createStudy('Moving Average', false, false, [200]);
-      }
-      if (document.getElementById('ma200w').checked) {
-        sma200wId = chart.createStudy('Moving Average', false, false, [1400]);
-      }
-    }
+async function initLevels(){
+  // Use 5y daily to compute MA200D & MA1400D; ATH from coin detail
+  const [mc5y, ath] = await Promise.all([
+    CG.marketChart(1825, 'daily'),
+    CG.ath()
+  ]);
+  const prices5y = mc5y?.prices || [];
+  const vals = prices5y.map(([t,p])=>Number(p));
+  const ma200 = sma(vals, 200);
+  const ma1400 = sma(vals, 1400);
+  levels.ma200d = last(ma200);
+  levels.ma200w = last(ma1400);
+  levels.ath = ath || Math.max(...vals); // fallback if ATH endpoint limited
+}
 
-    // Change resolution + visible range
-    function setRange(key) {
-      if (!chart) return;
-      const now = Math.floor(Date.now()/1000);
-      let from = now - 365*24*60*60; // default 1Y
-      let resolution = 'D';
+/** Load data & create per-pane charts */
+async function buildDay(){
+  if (!panes.day.chart){
+    const { chart, series } = createBaseChart(panes.day.el);
+    panes.day.chart = chart; panes.day.series = series;
+  }
+  const mc = await CG.marketChart(1, 'hourly'); // last 24h hourly points
+  panes.day.series.setData(toAreaData(mc.prices||[]));
+  addLevelLines(panes.day);
+  panes.day.chart.timeScale().fitContent();
+}
 
-      if (key === '1D') {
-        from = now - 24*60*60;
-        resolution = '60'; // hourly candles for 1D
-      } else if (key === '5Y') {
-        from = now - 5*365*24*60*60;
-        resolution = 'D'; // daily candles for 5Y
-      } // 1Y stays daily
+async function build1Y(){
+  if (!panes['1y'].chart){
+    const { chart, series } = createBaseChart(panes['1y'].el);
+    panes['1y'].chart = chart; panes['1y'].series = series;
+  }
+  const mc = await CG.marketChart(365, 'daily');
+  panes['1y'].series.setData(toAreaData(mc.prices||[]));
+  addLevelLines(panes['1y']);
+  panes['1y'].chart.timeScale().fitContent();
+}
 
-      chart.setResolution(resolution, () => {
-        chart.setVisibleRange({ from, to: now });
-        reapplyMAs();        // ensure MAs persist after resolution change
-      });
+async function build5Y(){
+  if (!panes['5y'].chart){
+    const { chart, series } = createBaseChart(panes['5y'].el);
+    panes['5y'].chart = chart; panes['5y'].series = series;
+  }
+  const mc = await CG.marketChart(1825, 'daily');
+  panes['5y'].series.setData(toAreaData(mc.prices||[]));
+  addLevelLines(panes['5y']);
+  panes['5y'].chart.timeScale().fitContent();
+}
 
-      // refresh alert context (CoinGecko polling)
-      fetchAndCompute();
-    }
+/** View switching */
+function setActive(view){
+  Object.entries(panes).forEach(([k,p])=>{
+    p.el.classList.toggle('active', k===view);
+  });
+}
 
-    /****************
-     * CoinGecko IO *
-     ****************/
-    const coingecko = { ath:null, current:null, ma200d:null, ma200w:null };
-    const CG = {
-      marketChart(days){ return fetch(`https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=${days}&interval=daily`).then(r=>r.json()); },
-      current(){ return fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd').then(r=>r.json()).then(j=>j.bitcoin.usd); },
-      ath(){ return fetch('https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&sparkline=false').then(r=>r.json()).then(j=>j?.market_data?.ath?.usd ?? null); }
-    };
+document.querySelectorAll('button[data-view]').forEach(btn=>{
+  btn.addEventListener('click', async ()=>{
+    const v = btn.getAttribute('data-view');
+    setActive(v);
+    // fetch/render that pane on demand, then keep it cached
+    if (v==='day')  await buildDay();
+    if (v==='1y')   await build1Y();
+    if (v==='5y')   await build5Y();
+  });
+});
 
-    function sma(arr, win){
-      const out = new Array(arr.length).fill(null);
-      let sum = 0;
-      for(let i=0;i<arr.length;i++){
-        sum += arr[i];
-        if (i>=win) sum -= arr[i-win];
-        if (i>=win-1) out[i] = sum/win;
-      }
-      return out;
-    }
+/** Overlay toggles update lines on whichever pane is visible (and cached) */
+['show200d','show200w','showATH'].forEach(id=>{
+  document.getElementById(id).addEventListener('change', ()=>{
+    Object.values(panes).forEach(p => { if (p.chart) addLevelLines(p); });
+  });
+});
 
-    async function fetchAndCompute(){
-      try {
-        const [mc, now, ath] = await Promise.all([
-          CG.marketChart(1825), // 5y daily for stable MAs
-          CG.current(),
-          CG.ath()
-        ]);
-        const series = (mc?.prices||[]).map(([t,p])=>({t, p}));
-        const values = series.map(x=>x.p);
-        const ma200d = sma(values, 200);
-        const ma1400d = sma(values, 1400);
-        coingecko.ma200d = ma200d.at(-1);
-        coingecko.ma200w = ma1400d.at(-1);
-        coingecko.current = now;
-        coingecko.ath = ath;
-        document.getElementById('notifState').textContent =
-          `Notifications: ${Notification.permission === 'granted' ? 'enabled' : 'pending'} • ` +
-          `Spot ~$${now.toLocaleString()} • ` +
-          (coingecko.ma200d ? `MA200 ~$${Math.round(coingecko.ma200d).toLocaleString()} • ` : '') +
-          (coingecko.ma200w ? `MA200w ~$${Math.round(coingecko.ma200w).toLocaleString()}` : '');
-      } catch(e){
-        console.warn('CoinGecko fetch failed', e);
-      }
-    }
-
-    /*********************
-     * Browser Alerts IO *
-     *********************/
-    function near(a,b,eps=0.001){ if(!a||!b) return false; return Math.abs(a-b)/b < eps; }
-    const lastAlert = { d:null, w:null, a:null };
-
-    async function ensureNotif(){
-      if (!('Notification' in window)) {
-        document.getElementById('notifState').textContent = 'Notifications: not supported in this browser.';
-        return;
-      }
-      if (Notification.permission !== 'granted'){
-        const res = await Notification.requestPermission();
-        if (res !== 'granted'){
-          document.getElementById('notifState').textContent = 'Notifications: denied.';
-          return;
-        }
-      }
-      document.getElementById('notifState').textContent = 'Notifications: enabled';
-    }
-
-    async function alertLoop(){
-      await fetchAndCompute();
-      const c = coingecko.current, d = coingecko.ma200d, w = coingecko.ma200w, a = coingecko.ath;
-      if (c && d && !lastAlert.d && near(c,d)) { new Notification('BTC near 200‑day MA', { body:`~$${c.toLocaleString()}` }); lastAlert.d = Date.now(); }
-      if (c && w && !lastAlert.w && near(c,w)) { new Notification('BTC near ~200‑week MA', { body:`~$${c.toLocaleString()}` }); lastAlert.w = Date.now(); }
-      if (c && a && !lastAlert.a && c >= a) { new Notification('BTC at/above ATH 🎉', { body:`~$${c.toLocaleString()}` }); lastAlert.a = Date.now(); }
-    }
-
-    (async ()=>{ await ensureNotif(); await alertLoop(); setInterval(alertLoop, 60_000); })();
-
-    /********************
-     * mempool.space IO *
-     ********************/
-    const MP = {
-      base: 'https://mempool.space/api',
-      addrInfo(a){ return fetch(`${this.base}/address/${a}`).then(r=>{ if(!r.ok) throw new Error('Invalid address'); return r.json(); }); },
-      addrUtxo(a){ return fetch(`${this.base}/address/${a}/utxo`).then(r=>r.json()); },
-      addrTxs(a){ return fetch(`${this.base}/address/${a}/txs`).then(r=>r.json()); }
-    };
-
-    function satsToBTC(s){ return (s/1e8); }
-
-    document.getElementById('addrBtn').addEventListener('click', async ()=>{
-      const a = document.getElementById('addrInput').value.trim();
-      const out = document.getElementById('addrResult');
-      if (!a){ out.innerHTML = '<small>Please paste a Bitcoin address.</small>'; return; }
-      out.textContent = 'Fetching…';
-      try{
-        const [info, utxos, txs] = await Promise.all([ MP.addrInfo(a), MP.addrUtxo(a), MP.addrTxs(a) ]);
-        const bal = satsToBTC(info.chain_stats.funded_txo_sum - info.chain_stats.spent_txo_sum);
-        out.innerHTML = `
-          <div class="row" style="justify-content:space-between">
-            <div><small>Address</small><div class="mono" style="word-break:break-all">${a}</div></div>
-            <div><small>Balance</small><div class="mono">${bal.toFixed(8)} BTC</div></div>
-          </div>
-          <hr/>
-          <small>UTXOs (first 10)</small>
-          <ul style="margin:6px 0 12px 16px">
-            ${(utxos||[]).slice(0,10).map(u=>`<li class="mono">${u.txid.slice(0,20)}…:${u.vout} — ${(u.value/1e8).toFixed(8)} BTC — ${u.status.confirmed?'confirmed':'pending'}</li>`).join('') || '<li class="mono">None</li>'}
-          </ul>
-          <small>Recent TXs (first 10)</small>
-          <ul style="margin:6px 0 0 16px">
-            ${(txs||[]).slice(0,10).map(t=>`<li class="mono">${t.txid.slice(0,24)}… — ${t.status.confirmed?'confirmed':'pending'}</li>`).join('') || '<li class="mono">None</li>'}
-          </ul>
-        `;
-      }catch(e){
-        out.innerHTML = `<small style="color:#e03a3a">Lookup failed: ${e.message}</small>`;
-      }
-    });
-
-    document.getElementById('clearAddrBtn').addEventListener('click', ()=>{
-      document.getElementById('addrInput').value='';
-      document.getElementById('addrResult').innerHTML='<small>Enter a Bitcoin address to view balance, UTXOs and recent TXs.</small>';
-    });
-  </script>
+/** Boot */
+(async function boot(){
+  await initLevels();          // compute global levels once
+  await buildDay();            // default: show day
+  setActive('day');
+})();
+</script>
 </body>
 </html>
