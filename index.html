@@ -24,6 +24,7 @@
     small{color:var(--muted)}
     .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
     hr{border:0;border-top:1px solid var(--line);margin:16px 0}
+    a{color:var(--accent)}
   </style>
 </head>
 <body>
@@ -49,7 +50,10 @@
         </div>
       </div>
       <div id="chart"></div>
-      <small>Sources: TradingView (live candles). Alerts/ATH from CoinGecko; on‑chain from mempool.space.</small>
+      <small>
+        Sources: TradingView (candles), CoinGecko (spot/ATH for alerts), mempool.space (on‑chain).
+        200‑week MA approximated as 1400‑day MA on daily candles.
+      </small>
     </section>
 
     <!-- RIGHT: Sidebar -->
@@ -60,7 +64,9 @@
         <button class="btn" id="addrBtn">Lookup</button>
         <button class="btn" id="clearAddrBtn">Clear</button>
       </div>
-      <div id="addrResult" style="margin-top:10px"><small>Enter a Bitcoin address to view balance, UTXOs and recent TXs.</small></div>
+      <div id="addrResult" style="margin-top:10px">
+        <small>Enter a Bitcoin address to view balance, UTXOs and recent TXs.</small>
+      </div>
 
       <hr />
 
@@ -70,8 +76,8 @@
       <hr />
 
       <h3>Donate BTC</h3>
-      <p class="mono" id="donationAddr">bc1qexampledonationaddrxxxxxxxxxxxxxxxxxxxxxxxxxxxx</p>
-      <small>Replace the address above in the file.</small>
+      <p class="mono" id="donationAddr">3Q8gDB9QEgLP71ts3XDK7Ss45wMGjL6BHu</p>
+      <small>Thank you for supporting development 🙏</small>
     </aside>
   </main>
 
@@ -105,21 +111,19 @@
 
     tvWidget.onChartReady(() => {
       chart = tvWidget.activeChart();
-      // Default overlays
       toggleMA('200d', true);
       toggleMA('200w', true);
 
-      // Range buttons (set visible range in seconds)
+      // Range buttons (visible window)
       document.querySelectorAll('button[data-range]').forEach(btn => {
         btn.addEventListener('click', () => {
           const k = btn.getAttribute('data-range');
           const now = Math.floor(Date.now()/1000);
-          let from = now - 365*24*60*60; // 1Y default
+          let from = now - 365*24*60*60;  // 1Y default
           if (k==='1D') from = now - 24*60*60;
           if (k==='5Y') from = now - 5*365*24*60*60;
           chart.setVisibleRange({ from, to: now });
-          // keep computing MAs from 5Y daily data for alert accuracy
-          fetchAndCompute(); // refresh alerts context
+          fetchAndCompute(); // refresh alert context
         });
       });
 
@@ -129,7 +133,10 @@
       document.getElementById('markATHBtn').addEventListener('click', () => {
         if (!coingecko.ath) return alert('ATH not loaded yet.');
         if (athLineId) { chart.removeEntity(athLineId); athLineId = null; }
-        else athLineId = chart.createShape({ price: coingecko.ath }, { shape:"horizontal_line", text: "ATH $" + coingecko.ath.toLocaleString() });
+        else athLineId = chart.createShape({ price: coingecko.ath }, {
+          shape:"horizontal_line",
+          text: "ATH $" + coingecko.ath.toLocaleString()
+        });
       });
     });
 
@@ -139,7 +146,7 @@
         if (on && !sma200dId) sma200dId = chart.createStudy('Moving Average', false, false, [200]);
         if (!on && sma200dId) { chart.removeEntity(sma200dId); sma200dId=null; }
       } else {
-        // approx 200-week MA on daily chart: 200*7 = 1400 days
+        // approximate 200-week MA on daily chart
         if (on && !sma200wId) sma200wId = chart.createStudy('Moving Average', false, false, [1400]);
         if (!on && sma200wId) { chart.removeEntity(sma200wId); sma200wId=null; }
       }
@@ -155,7 +162,6 @@
       ath(){ return fetch('https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&sparkline=false').then(r=>r.json()).then(j=>j?.market_data?.ath?.usd ?? null); }
     };
 
-    const DAY = 24*60*60*1000;
     function sma(arr, win){
       const out = new Array(arr.length).fill(null);
       let sum = 0;
@@ -170,7 +176,7 @@
     async function fetchAndCompute(){
       try {
         const [mc, now, ath] = await Promise.all([
-          CG.marketChart(1825), // use 5y daily data for stable MAs
+          CG.marketChart(1825), // 5y daily
           CG.current(),
           CG.ath()
         ]);
@@ -206,7 +212,7 @@
       if (Notification.permission !== 'granted'){
         const res = await Notification.requestPermission();
         if (res !== 'granted'){
-          document.getElementById('notifState').textContent = 'Notifications: denied (change in site settings to enable).';
+          document.getElementById('notifState').textContent = 'Notifications: denied.';
           return;
         }
       }
@@ -221,7 +227,6 @@
       if (c && a && !lastAlert.a && c >= a) { new Notification('BTC at/above ATH 🎉', { body:`~$${c.toLocaleString()}` }); lastAlert.a = Date.now(); }
     }
 
-    // kick off notifications + polling
     (async ()=>{ await ensureNotif(); await alertLoop(); setInterval(alertLoop, 60_000); })();
 
     /********************
@@ -252,11 +257,11 @@
           <hr/>
           <small>UTXOs (first 10)</small>
           <ul style="margin:6px 0 12px 16px">
-            ${utxos.slice(0,10).map(u=>`<li class="mono">${u.txid.slice(0,20)}…:${u.vout} — ${(u.value/1e8).toFixed(8)} BTC — ${u.status.confirmed?'confirmed':'pending'}</li>`).join('') || '<li class="mono">None</li>'}
+            ${(utxos||[]).slice(0,10).map(u=>`<li class="mono">${u.txid.slice(0,20)}…:${u.vout} — ${(u.value/1e8).toFixed(8)} BTC — ${u.status.confirmed?'confirmed':'pending'}</li>`).join('') || '<li class="mono">None</li>'}
           </ul>
           <small>Recent TXs (first 10)</small>
           <ul style="margin:6px 0 0 16px">
-            ${txs.slice(0,10).map(t=>`<li class="mono">${t.txid.slice(0,24)}… — ${t.status.confirmed?'confirmed':'pending'}</li>`).join('') || '<li class="mono">None</li>'}
+            ${(txs||[]).slice(0,10).map(t=>`<li class="mono">${t.txid.slice(0,24)}… — ${t.status.confirmed?'confirmed':'pending'}</li>`).join('') || '<li class="mono">None</li>'}
           </ul>
         `;
       }catch(e){
