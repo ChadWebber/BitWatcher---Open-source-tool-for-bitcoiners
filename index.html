@@ -111,45 +111,76 @@
 
     tvWidget.onChartReady(() => {
       chart = tvWidget.activeChart();
-      toggleMA('200d', true);
-      toggleMA('200w', true);
 
-      // Range buttons (visible window)
+      // Default view on load
+      setRange('1Y');
+
+      // Wire up range buttons
       document.querySelectorAll('button[data-range]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const k = btn.getAttribute('data-range');
-          const now = Math.floor(Date.now()/1000);
-          let from = now - 365*24*60*60;  // 1Y default
-          if (k==='1D') from = now - 24*60*60;
-          if (k==='5Y') from = now - 5*365*24*60*60;
-          chart.setVisibleRange({ from, to: now });
-          fetchAndCompute(); // refresh alert context
-        });
+        btn.addEventListener('click', () => setRange(btn.getAttribute('data-range')));
       });
 
-      document.getElementById('ma200d').addEventListener('change', e => toggleMA('200d', e.target.checked));
-      document.getElementById('ma200w').addEventListener('change', e => toggleMA('200w', e.target.checked));
+      // MA toggles
+      document.getElementById('ma200d').addEventListener('change', e => {
+        if (e.target.checked) {
+          if (!sma200dId) sma200dId = chart.createStudy('Moving Average', false, false, [200]);
+        } else if (sma200dId) {
+          chart.removeEntity(sma200dId); sma200dId = null;
+        }
+      });
+      document.getElementById('ma200w').addEventListener('change', e => {
+        if (e.target.checked) {
+          if (!sma200wId) sma200wId = chart.createStudy('Moving Average', false, false, [1400]);
+        } else if (sma200wId) {
+          chart.removeEntity(sma200wId); sma200wId = null;
+        }
+      });
 
+      // ATH toggle
       document.getElementById('markATHBtn').addEventListener('click', () => {
         if (!coingecko.ath) return alert('ATH not loaded yet.');
         if (athLineId) { chart.removeEntity(athLineId); athLineId = null; }
-        else athLineId = chart.createShape({ price: coingecko.ath }, {
-          shape:"horizontal_line",
-          text: "ATH $" + coingecko.ath.toLocaleString()
-        });
+        else athLineId = chart.createShape(
+          { price: coingecko.ath },
+          { shape: 'horizontal_line', text: 'ATH $' + coingecko.ath.toLocaleString() }
+        );
       });
     });
 
-    function toggleMA(which, on) {
-      if (!chart) return;
-      if (which==='200d') {
-        if (on && !sma200dId) sma200dId = chart.createStudy('Moving Average', false, false, [200]);
-        if (!on && sma200dId) { chart.removeEntity(sma200dId); sma200dId=null; }
-      } else {
-        // approximate 200-week MA on daily chart
-        if (on && !sma200wId) sma200wId = chart.createStudy('Moving Average', false, false, [1400]);
-        if (!on && sma200wId) { chart.removeEntity(sma200wId); sma200wId=null; }
+    // Re-apply studies after a resolution change (TV can drop them)
+    function reapplyMAs() {
+      if (sma200dId) { chart.removeEntity(sma200dId); sma200dId = null; }
+      if (sma200wId) { chart.removeEntity(sma200wId); sma200wId = null; }
+      if (document.getElementById('ma200d').checked) {
+        sma200dId = chart.createStudy('Moving Average', false, false, [200]);
       }
+      if (document.getElementById('ma200w').checked) {
+        sma200wId = chart.createStudy('Moving Average', false, false, [1400]);
+      }
+    }
+
+    // Change resolution + visible range
+    function setRange(key) {
+      if (!chart) return;
+      const now = Math.floor(Date.now()/1000);
+      let from = now - 365*24*60*60; // default 1Y
+      let resolution = 'D';
+
+      if (key === '1D') {
+        from = now - 24*60*60;
+        resolution = '60'; // hourly candles for 1D
+      } else if (key === '5Y') {
+        from = now - 5*365*24*60*60;
+        resolution = 'D'; // daily candles for 5Y
+      } // 1Y stays daily
+
+      chart.setResolution(resolution, () => {
+        chart.setVisibleRange({ from, to: now });
+        reapplyMAs();        // ensure MAs persist after resolution change
+      });
+
+      // refresh alert context (CoinGecko polling)
+      fetchAndCompute();
     }
 
     /****************
@@ -176,7 +207,7 @@
     async function fetchAndCompute(){
       try {
         const [mc, now, ath] = await Promise.all([
-          CG.marketChart(1825), // 5y daily
+          CG.marketChart(1825), // 5y daily for stable MAs
           CG.current(),
           CG.ath()
         ]);
